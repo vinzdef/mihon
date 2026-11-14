@@ -17,6 +17,7 @@ import androidx.core.view.isGone
 import androidx.core.view.isVisible
 import androidx.viewpager.widget.ViewPager
 import eu.kanade.tachiyomi.R
+import eu.kanade.tachiyomi.source.model.Page
 import eu.kanade.tachiyomi.ui.reader.ReaderActivity
 import eu.kanade.tachiyomi.ui.reader.model.ChapterTransition
 import eu.kanade.tachiyomi.ui.reader.model.InsertPage
@@ -32,8 +33,16 @@ import eu.kanade.tachiyomi.ui.reader.viewer.Viewer
 import eu.kanade.tachiyomi.ui.reader.viewer.collectChanges
 import eu.kanade.tachiyomi.ui.reader.viewer.mouseWheelPaging
 import eu.kanade.tachiyomi.ui.reader.viewer.position
+import kotlinx.coroutines.CancellationException
+import kotlinx.coroutines.Dispatchers
+import kotlinx.coroutines.Job
 import kotlinx.coroutines.MainScope
 import kotlinx.coroutines.cancel
+import kotlinx.coroutines.delay
+import kotlinx.coroutines.flow.first
+import kotlinx.coroutines.launch
+import kotlinx.coroutines.withContext
+import logcat.LogPriority
 import mihon.app.di.appGraph
 import tachiyomi.core.common.util.system.logcat
 import kotlin.math.min
@@ -85,6 +94,8 @@ abstract class PagerViewer(val activity: ReaderActivity) : Viewer {
 
     val isRtl: Boolean
         get() = isReversed
+
+    private var panelsPrefetchJob: Job? = null
 
     val imageZoomType: ZoomStartPosition
         get() = paged.page.zoomStart.position(
@@ -220,6 +231,48 @@ abstract class PagerViewer(val activity: ReaderActivity) : Viewer {
     private fun onPageChange(position: Int) {
         tracker.onPageChange(position)
         pageHolders.forEach { it.onPanelsPriorityChanged() }
+        prefetchPanels()
+    }
+
+    /**
+     * Covers pages beyond those the pager keeps loaded.
+     */
+    private fun prefetchPanels() {
+        panelsPrefetchJob?.cancel()
+        // A split or rotated page is not the image its panels would be looked for in.
+        if (!panels.page.enabled || simplePaged.dualPageSplit || simplePaged.dualPageRotateToFit) {
+            return
+        }
+        val position = pager.currentItem
+        val step = if (isRtl) -1 else 1
+        val pages = buildList {
+            for (i in 1..PANELS_PREFETCH_NEXT) {
+                add(adapter.items.getOrNull(position + i * step))
+            }
+            for (i in 1..PANELS_PREFETCH_PREVIOUS) {
+                add(adapter.items.getOrNull(position - i * step))
+            }
+        }.filterIsInstance<ReaderPage>()
+        val isBordersCropped = paged.page.cropBorders
+        panelsPrefetchJob = scope.launch {
+            // Skip pages that are only skimmed through
+            delay(PANELS_PREFETCH_DELAY)
+            for (page in pages) {
+                try {
+                    val loader = page.chapter.pageLoader ?: continue
+                    if (loader.isLocal && page.status != Page.State.Ready) {
+                        withContext(Dispatchers.IO) { loader.loadPage(page) }
+                    }
+                    page.statusFlow.first { it == Page.State.Ready }
+                    val stream = page.stream ?: continue
+                    panelDetector.getPanels(page, isRtl, isForeground = false, isBordersCropped, stream)
+                } catch (e: CancellationException) {
+                    throw e
+                } catch (e: Throwable) {
+                    logcat(LogPriority.ERROR, e) { "Panel detection failed" }
+                }
+            }
+        }
     }
 
     fun isCurrentPage(page: ReaderPage): Boolean = tracker.currentPage == page
@@ -382,3 +435,7 @@ abstract class PagerViewer(val activity: ReaderActivity) : Viewer {
 private class DisallowInterceptBarrier(context: Context) : FrameLayout(context) {
     override fun requestDisallowInterceptTouchEvent(disallowIntercept: Boolean) = Unit
 }
+
+private const val PANELS_PREFETCH_NEXT = 5
+private const val PANELS_PREFETCH_PREVIOUS = 2
+private const val PANELS_PREFETCH_DELAY = 500L
