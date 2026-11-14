@@ -22,9 +22,11 @@ import eu.kanade.tachiyomi.ui.reader.model.ChapterTransition
 import eu.kanade.tachiyomi.ui.reader.model.InsertPage
 import eu.kanade.tachiyomi.ui.reader.model.ReaderPage
 import eu.kanade.tachiyomi.ui.reader.model.ViewerChapters
+import eu.kanade.tachiyomi.ui.reader.panel.PanelDetector
 import eu.kanade.tachiyomi.ui.reader.setting.GeneralSettings
 import eu.kanade.tachiyomi.ui.reader.viewer.LocalPageColorFilter
 import eu.kanade.tachiyomi.ui.reader.viewer.PagedSettings
+import eu.kanade.tachiyomi.ui.reader.viewer.PanelSettings
 import eu.kanade.tachiyomi.ui.reader.viewer.ReaderPageImageView.ZoomStartPosition
 import eu.kanade.tachiyomi.ui.reader.viewer.Viewer
 import eu.kanade.tachiyomi.ui.reader.viewer.collectChanges
@@ -73,6 +75,17 @@ abstract class PagerViewer(val activity: ReaderActivity) : Viewer {
     val general: GeneralSettings
         get() = settingsViewModel.general.value
 
+    /**
+     * Settings of reading panel by panel.
+     */
+    val panels: PanelSettings
+        get() = settingsViewModel.panels.value
+
+    val panelDetector by lazy { PanelDetector(activity.applicationContext, graph.readerPreferences) }
+
+    val isRtl: Boolean
+        get() = isReversed
+
     val imageZoomType: ZoomStartPosition
         get() = paged.page.zoomStart.position(
             auto = when (this) {
@@ -98,11 +111,14 @@ abstract class PagerViewer(val activity: ReaderActivity) : Viewer {
             if (!activity.isScrollingThroughPages) {
                 activity.hideMenu()
             }
-            tracker.onPageChange(position)
+            onPageChange(position)
         }
 
         override fun onPageScrollStateChanged(state: Int) {
             tracker.isIdle = state == ViewPager.SCROLL_STATE_IDLE
+            if (tracker.isIdle) {
+                updatePanelEntries()
+            }
         }
     }
 
@@ -155,11 +171,17 @@ abstract class PagerViewer(val activity: ReaderActivity) : Viewer {
                 refreshAdapter()
             }
         }
+        settingsViewModel.panels.collectChanges(scope) { old, new ->
+            if (old != null && old.page != new.page) {
+                refreshAdapter()
+            }
+        }
     }
 
     override fun destroy() {
         super.destroy()
         scope.cancel()
+        panelDetector.close()
     }
 
     /**
@@ -190,9 +212,51 @@ abstract class PagerViewer(val activity: ReaderActivity) : Viewer {
      * Returns the PagerPageHolder for the provided page
      */
     private fun getPageHolder(page: ReaderPage): PagerPageHolder? =
-        pager.children
-            .filterIsInstance(PagerPageHolder::class.java)
-            .firstOrNull { it.item == page }
+        pageHolders.firstOrNull { it.item == page }
+
+    private val pageHolders: Sequence<PagerPageHolder>
+        get() = pager.children.filterIsInstance(PagerPageHolder::class.java)
+
+    private fun onPageChange(position: Int) {
+        tracker.onPageChange(position)
+        pageHolders.forEach { it.onPanelsPriorityChanged() }
+    }
+
+    fun isCurrentPage(page: ReaderPage): Boolean = tracker.currentPage == page
+
+    fun isBeforeCurrentPage(page: ReaderPage): Boolean {
+        val position = adapter.items.indexOf(page)
+        if (position == -1) {
+            return false
+        }
+        // Items are in layout order, which is reversed for right to left
+        return if (isRtl) position > pager.currentItem else position < pager.currentItem
+    }
+
+    /**
+     * Done once the pager has settled, as the neighbouring pages are visible while it scrolls.
+     */
+    private fun updatePanelEntries() {
+        if (!panels.page.enabled) {
+            return
+        }
+        for (holder in pageHolders) {
+            if (!isCurrentPage(holder.item)) {
+                holder.setPanelEntry(isFromEnd = isBeforeCurrentPage(holder.item))
+            }
+        }
+    }
+
+    /**
+     * @return false if the page should be switched instead
+     */
+    private fun movePanel(delta: Int): Boolean {
+        if (!panels.page.enabled) {
+            return false
+        }
+        val holder = (tracker.currentPage as? ReaderPage)?.let(::getPageHolder)
+        return holder != null && holder.switchPanelBy(delta)
+    }
 
     /**
      * Tells this viewer to set the given [chapters] as active. If the pager is currently idle,
@@ -223,7 +287,7 @@ abstract class PagerViewer(val activity: ReaderActivity) : Viewer {
 
         pager.addOnPageChangeListener(pagerListener)
         // Manually call onPageChange to update the UI
-        tracker.onPageChange(pager.currentItem)
+        onPageChange(pager.currentItem)
     }
 
     /**
@@ -236,7 +300,7 @@ abstract class PagerViewer(val activity: ReaderActivity) : Viewer {
             pager.setCurrentItem(position, true)
             // manually call onPageChange since ViewPager listener is not triggered in this case
             if (currentPosition == position) {
-                tracker.onPageChange(position)
+                onPageChange(position)
             }
         } else {
             logcat { "Page $page not found in adapter" }
@@ -248,9 +312,15 @@ abstract class PagerViewer(val activity: ReaderActivity) : Viewer {
      */
     protected open val isReversed = false
 
-    override fun moveForward() = if (isReversed) moveLeft() else moveRight()
+    override fun moveForward() {
+        if (movePanel(1)) return
+        if (isReversed) moveLeft() else moveRight()
+    }
 
-    override fun moveBackward() = if (isReversed) moveRight() else moveLeft()
+    override fun moveBackward() {
+        if (movePanel(-1)) return
+        if (isReversed) moveRight() else moveLeft()
+    }
 
     /**
      * Moves to the page at the right.
@@ -258,7 +328,7 @@ abstract class PagerViewer(val activity: ReaderActivity) : Viewer {
     private fun moveRight() {
         if (pager.currentItem != adapter.count - 1) {
             val holder = (tracker.currentPage as? ReaderPage)?.let(::getPageHolder)
-            if (holder != null && paged.navigateToPan && holder.canPanRight()) {
+            if (holder != null && paged.navigateToPan && !holder.hasPanels && holder.canPanRight()) {
                 holder.panRight()
             } else {
                 pager.setCurrentItem(pager.currentItem + 1, general.usePageTransitions)
@@ -272,7 +342,7 @@ abstract class PagerViewer(val activity: ReaderActivity) : Viewer {
     private fun moveLeft() {
         if (pager.currentItem != 0) {
             val holder = (tracker.currentPage as? ReaderPage)?.let(::getPageHolder)
-            if (holder != null && paged.navigateToPan && holder.canPanLeft()) {
+            if (holder != null && paged.navigateToPan && !holder.hasPanels && holder.canPanLeft()) {
                 holder.panLeft()
             } else {
                 pager.setCurrentItem(pager.currentItem - 1, general.usePageTransitions)
@@ -285,6 +355,7 @@ abstract class PagerViewer(val activity: ReaderActivity) : Viewer {
      * changed.
      */
     private fun refreshAdapter() {
+        panelDetector.clear()
         val currentItem = pager.currentItem
         adapter.refresh()
         pager.adapter = adapter

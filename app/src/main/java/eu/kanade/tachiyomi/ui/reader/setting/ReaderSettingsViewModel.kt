@@ -8,6 +8,7 @@ import eu.kanade.tachiyomi.ui.reader.ReaderViewModel
 import eu.kanade.tachiyomi.ui.reader.viewer.LongStripSettings
 import eu.kanade.tachiyomi.ui.reader.viewer.NavigationSettings
 import eu.kanade.tachiyomi.ui.reader.viewer.PagedSettings
+import eu.kanade.tachiyomi.ui.reader.viewer.PanelSettings
 import eu.kanade.tachiyomi.ui.reader.viewer.ViewerNavigation
 import eu.kanade.tachiyomi.ui.reader.viewer.navigation.LNavigation
 import eu.kanade.tachiyomi.ui.reader.viewer.navigation.RightAndLeftNavigation
@@ -136,6 +137,27 @@ class ReaderSettingsViewModel(
                 ReaderPreferences.NavigationMode.fromValue(navigationModePager.get()),
                 pagerNavInverted.get(),
             ),
+        )
+    }
+
+    /**
+     * Settings of reading panel by panel.
+     */
+    val panels = settings(
+        preferences.panelMode,
+        preferences.panelSteps,
+        preferences.panelModel,
+        preferences.panelWholePageFirst,
+        preferences.panelCenter,
+    ) {
+        PanelSettings(
+            page = PanelSettings.Page(
+                enabled = panelMode.get(),
+                steps = panelSteps.get(),
+                model = panelModel.get(),
+            ),
+            wholePageFirst = panelWholePageFirst.get(),
+            center = panelCenter.get(),
         )
     }
 
