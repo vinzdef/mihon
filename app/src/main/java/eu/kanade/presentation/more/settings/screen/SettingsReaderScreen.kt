@@ -7,6 +7,7 @@ import androidx.compose.runtime.remember
 import androidx.compose.ui.platform.LocalContext
 import androidx.compose.ui.platform.LocalView
 import eu.kanade.presentation.more.settings.Preference
+import eu.kanade.tachiyomi.ui.reader.panel.PanelModel
 import eu.kanade.tachiyomi.ui.reader.setting.ReaderOrientation
 import eu.kanade.tachiyomi.ui.reader.setting.ReaderPreferences
 import eu.kanade.tachiyomi.ui.reader.setting.ReadingMode
@@ -68,6 +69,7 @@ object SettingsReaderScreen : SearchableSettings {
             getEInkGroup(readerPreferences = readerPref),
             getReadingGroup(readerPreferences = readerPref),
             getPagedGroup(readerPreferences = readerPref),
+            getPanelsGroup(readerPreferences = readerPref),
             getWebtoonGroup(readerPreferences = readerPref),
             getNavigationGroup(readerPreferences = readerPref),
             getActionsGroup(readerPreferences = readerPref),
@@ -273,6 +275,45 @@ object SettingsReaderScreen : SearchableSettings {
                     preference = readerPreferences.dualPageRotateToFitInvert,
                     title = stringResource(MR.strings.pref_page_rotate_invert),
                     visible = rotateToFit,
+                ),
+            ),
+        )
+    }
+
+    @Composable
+    private fun getPanelsGroup(readerPreferences: ReaderPreferences): Preference.PreferenceGroup {
+        val panelMode by readerPreferences.panelMode.collectAsState()
+
+        return Preference.PreferenceGroup(
+            title = stringResource(MR.strings.pref_panel_mode),
+            preferenceItems = listOf(
+                Preference.PreferenceItem.SwitchPreference(
+                    preference = readerPreferences.panelMode,
+                    title = stringResource(MR.strings.pref_panel_mode),
+                    subtitle = stringResource(MR.strings.pref_panel_mode_summary),
+                ),
+                Preference.PreferenceItem.SwitchPreference(
+                    preference = readerPreferences.panelSteps,
+                    title = stringResource(MR.strings.pref_panel_steps),
+                    subtitle = stringResource(MR.strings.pref_panel_steps_summary),
+                    visible = panelMode,
+                ),
+                Preference.PreferenceItem.SwitchPreference(
+                    preference = readerPreferences.panelWholePageFirst,
+                    title = stringResource(MR.strings.pref_panel_whole_page),
+                    subtitle = stringResource(MR.strings.pref_panel_whole_page_summary),
+                    visible = panelMode,
+                ),
+                Preference.PreferenceItem.SwitchPreference(
+                    preference = readerPreferences.panelCenter,
+                    title = stringResource(MR.strings.pref_panel_center),
+                    subtitle = stringResource(MR.strings.pref_panel_center_summary),
+                    visible = panelMode,
+                ),
+                Preference.PreferenceItem.ListPreference(
+                    preference = readerPreferences.panelModel,
+                    entries = PanelModel.entries.associateWith { it.title },
+                    title = stringResource(MR.strings.pref_panel_model),
                 ),
             ),
         )

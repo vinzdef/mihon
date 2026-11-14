@@ -114,6 +114,27 @@ private fun ColumnScope.PagerViewerSettings(viewModel: ReaderSettingsViewModel) 
         pref = viewModel.preferences.navigateToPan,
     )
 
+    val panelMode by viewModel.preferences.panelMode.collectAsState()
+    CheckboxItem(
+        label = stringResource(MR.strings.pref_panel_mode),
+        pref = viewModel.preferences.panelMode,
+    )
+
+    if (panelMode) {
+        CheckboxItem(
+            label = stringResource(MR.strings.pref_panel_steps),
+            pref = viewModel.preferences.panelSteps,
+        )
+        CheckboxItem(
+            label = stringResource(MR.strings.pref_panel_whole_page),
+            pref = viewModel.preferences.panelWholePageFirst,
+        )
+        CheckboxItem(
+            label = stringResource(MR.strings.pref_panel_center),
+            pref = viewModel.preferences.panelCenter,
+        )
+    }
+
     val dualPageSplitPaged by viewModel.preferences.dualPageSplitPaged.collectAsState()
     CheckboxItem(
         label = stringResource(MR.strings.pref_dual_page_split),
