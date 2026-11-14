@@ -291,6 +291,9 @@ dependencies {
     }
     implementation(libs.image.decoder)
 
+    // Panel detection
+    implementation(libs.onnxruntime.android)
+
     implementation(libs.webgpuviewer)
 
     // UI libraries

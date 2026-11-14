@@ -145,8 +145,50 @@ open class ReaderPageImageView @JvmOverloads constructor(
         }
     }
 
+    // Off while showing a panel, which landscape zoom would override
+    protected open val isLandscapeZoomAllowed: Boolean
+        get() = true
+
+    protected val zoomableView: SubsamplingScaleImageView?
+        get() = pageView as? SubsamplingScaleImageView
+
+    protected fun resetZoom() {
+        val view = zoomableView?.takeIf { it.isReady } ?: return
+        val center = when (config?.zoomStartPosition) {
+            ZoomStartPosition.LEFT -> PointF(0F, 0F)
+            ZoomStartPosition.RIGHT -> PointF(view.sWidth.toFloat(), 0F)
+            else -> PointF(view.sWidth / 2F, view.sHeight / 2F)
+        }
+        view.setPanLimit(SubsamplingScaleImageView.PAN_LIMIT_INSIDE)
+        view.setScaleAndCenter(view.minScale, center)
+    }
+
+    /**
+     * @param isCentered whether a part at the image edge is centered too, with the background around it
+     */
+    protected fun zoomTo(scale: Float, center: PointF, isCentered: Boolean, isAnimated: Boolean) {
+        val view = zoomableView?.takeIf { it.isReady } ?: return
+        view.setPanLimit(
+            if (isCentered) SubsamplingScaleImageView.PAN_LIMIT_CENTER else SubsamplingScaleImageView.PAN_LIMIT_INSIDE,
+        )
+        if (scale > view.maxScale) {
+            view.maxScale = scale
+        }
+        val animation = if (isAnimated) view.animateScaleAndCenter(scale, center) else null
+        if (animation != null) {
+            animation
+                .withDuration(ZOOM_TO_DURATION.getSystemScaledDuration().toLong())
+                .withEasing(EASE_OUT_QUAD)
+                .withInterruptible(true)
+                .start()
+        } else {
+            view.setScaleAndCenter(scale, center)
+        }
+    }
+
     private fun SubsamplingScaleImageView.landscapeZoom(forward: Boolean) {
         if (
+            isLandscapeZoomAllowed &&
             config != null &&
             config!!.landscapeZoom &&
             config!!.minimumScaleType == SCALE_TYPE_CENTER_INSIDE &&
@@ -154,6 +196,7 @@ open class ReaderPageImageView @JvmOverloads constructor(
             scale == minScale
         ) {
             handler?.postDelayed(500) {
+                if (!isLandscapeZoomAllowed) return@postDelayed
                 val point = when (config!!.zoomStartPosition) {
                     ZoomStartPosition.LEFT -> if (forward) PointF(0F, 0F) else PointF(sWidth.toFloat(), 0F)
                     ZoomStartPosition.RIGHT -> if (forward) PointF(sWidth.toFloat(), 0F) else PointF(0F, 0F)
@@ -477,3 +520,4 @@ open class ReaderPageImageView @JvmOverloads constructor(
 }
 
 private const val MAX_ZOOM_SCALE = 5F
+private const val ZOOM_TO_DURATION = 300

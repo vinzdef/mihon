@@ -6,6 +6,7 @@ import dev.icerock.moko.resources.StringResource
 import dev.zacsweers.metro.AppScope
 import dev.zacsweers.metro.Inject
 import dev.zacsweers.metro.SingleIn
+import eu.kanade.tachiyomi.ui.reader.panel.PanelModel
 import eu.kanade.tachiyomi.ui.reader.viewer.webgpu.WebGpuShader
 import eu.kanade.tachiyomi.ui.reader.viewer.webgpu.WebGpuShaders
 import tachiyomi.core.common.preference.Preference
@@ -262,6 +263,20 @@ class ReaderPreferences(
         WebGpuShaders::serialize,
         WebGpuShaders::deserialize,
     )
+
+    // endregion
+
+    // region Panels
+
+    val panelMode: Preference<Boolean> = preferenceStore.getBoolean("reader_panels", false)
+
+    val panelSteps: Preference<Boolean> = preferenceStore.getBoolean("reader_panels_steps", true)
+
+    val panelWholePageFirst: Preference<Boolean> = preferenceStore.getBoolean("reader_panels_whole_page", false)
+
+    val panelCenter: Preference<Boolean> = preferenceStore.getBoolean("reader_panels_center", false)
+
+    val panelModel: Preference<PanelModel> = preferenceStore.getEnum("reader_panels_model", PanelModel.MANGA109)
 
     // endregion
 

@@ -2,13 +2,22 @@ package eu.kanade.tachiyomi.ui.reader.viewer.pager
 
 import android.annotation.SuppressLint
 import android.content.Context
+import android.graphics.PointF
+import android.view.Gravity
+import android.widget.FrameLayout
+import androidx.core.view.isVisible
+import com.google.android.material.progressindicator.LinearProgressIndicator
 import eu.kanade.tachiyomi.source.model.Page
 import eu.kanade.tachiyomi.ui.reader.model.ReaderPage
+import eu.kanade.tachiyomi.ui.reader.panel.Panel
+import eu.kanade.tachiyomi.ui.reader.panel.PanelStop
+import eu.kanade.tachiyomi.ui.reader.panel.PanelStops
 import eu.kanade.tachiyomi.ui.reader.viewer.ReaderPageErrorView
 import eu.kanade.tachiyomi.ui.reader.viewer.ReaderPageImageView
 import eu.kanade.tachiyomi.ui.reader.viewer.ReaderProgressIndicator
 import eu.kanade.tachiyomi.ui.reader.viewer.processPagedImage
 import eu.kanade.tachiyomi.widget.ViewPagerAdapter
+import kotlinx.coroutines.CancellationException
 import kotlinx.coroutines.Dispatchers
 import kotlinx.coroutines.Job
 import kotlinx.coroutines.MainScope
@@ -18,8 +27,10 @@ import kotlinx.coroutines.supervisorScope
 import kotlinx.coroutines.withContext
 import logcat.LogPriority
 import okio.Buffer
+import okio.ByteString
 import tachiyomi.core.common.util.system.ImageUtil
 import tachiyomi.core.common.util.system.logcat
+import kotlin.math.roundToInt
 
 /**
  * View of the ViewPager that contains a page of a chapter.
@@ -54,6 +65,25 @@ class PagerPageHolder(
      */
     private var loadJob: Job? = null
 
+    private var panels: List<Panel> = emptyList()
+    private var panelStops: List<PanelStop>? = null
+    private var panelIndex = NO_PANEL
+    private var isPanelEntryFromEnd = viewer.isBeforeCurrentPage(page)
+
+    /**
+     * Kept to request again with another priority once the page gets on or off screen.
+     */
+    private var panelsData: ByteString? = null
+    private var panelsJob: Job? = null
+    private var panelsIndicator: LinearProgressIndicator? = null
+    private var isImageShown = false
+
+    val hasPanels: Boolean
+        get() = getPanelStops() != null
+
+    override val isLandscapeZoomAllowed: Boolean
+        get() = panelIndex == NO_PANEL
+
     init {
         pageColorFilter = viewer.pageColorFilter
         loadJob = scope.launch { loadPageAndProcessStatus() }
@@ -67,6 +97,8 @@ class PagerPageHolder(
         super.onDetachedFromWindow()
         loadJob?.cancel()
         loadJob = null
+        panelsJob?.cancel()
+        panelsJob = null
     }
 
     private fun initProgressIndicator() {
@@ -144,6 +176,7 @@ class PagerPageHolder(
 
         try {
             val buffer = withContext(Dispatchers.IO) { streamFn().use { Buffer().readFrom(it) } }
+            var panelsBytes: ByteString? = null
             // Splitting, merging and sampling the background decode the image, which is CPU work
             val (source, isAnimated, background) = withContext(Dispatchers.Default) {
                 val source = viewer.simplePaged.processPagedImage(item, buffer, viewer is L2RPagerViewer) {
@@ -155,9 +188,14 @@ class PagerPageHolder(
                 } else {
                     null
                 }
+                if (!isAnimated && viewer.panels.page.enabled) {
+                    // The source itself is consumed by the page view
+                    panelsBytes = source.peek().readByteString()
+                }
                 Triple(source, isAnimated, background)
             }
             withContext(Dispatchers.Main) {
+                resetPanels()
                 setImage(
                     source,
                     isAnimated,
@@ -173,6 +211,10 @@ class PagerPageHolder(
                     pageBackground = background
                 }
                 removeErrorLayout()
+                panelsBytes?.let {
+                    panelsData = it
+                    loadPanels()
+                }
             }
         } catch (e: Throwable) {
             logcat(LogPriority.ERROR, e)
@@ -193,6 +235,130 @@ class PagerPageHolder(
     override fun onImageLoaded() {
         super.onImageLoaded()
         progressIndicator?.hide()
+        isImageShown = true
+        updatePanelsIndicator()
+        panelIndex = NO_PANEL
+        applyPanelEntry()
+    }
+
+    /**
+     * @return false if the page should be switched instead
+     */
+    fun switchPanelBy(delta: Int): Boolean {
+        val stops = getPanelStops() ?: return false
+        val index = panelIndex + delta
+        val minIndex = if (viewer.panels.wholePageFirst) NO_PANEL else 0
+        if (index < minIndex || index >= stops.size) {
+            return false
+        }
+        showPanelStop(stops, index, isAnimated = true)
+        return true
+    }
+
+    /**
+     * @param isFromEnd whether the page precedes the current one, so it is entered from its last panel
+     */
+    fun setPanelEntry(isFromEnd: Boolean) {
+        isPanelEntryFromEnd = isFromEnd
+        applyPanelEntry()
+    }
+
+    fun onPanelsPriorityChanged() {
+        if (panelsJob?.isActive == true) {
+            loadPanels()
+        }
+    }
+
+    private fun applyPanelEntry() {
+        val stops = getPanelStops() ?: return
+        val index = when {
+            isPanelEntryFromEnd -> stops.lastIndex
+            viewer.panels.wholePageFirst -> NO_PANEL
+            else -> 0
+        }
+        if (index != panelIndex) {
+            showPanelStop(stops, index, isAnimated = false)
+        }
+    }
+
+    private fun getPanelStops(): List<PanelStop>? {
+        val view = zoomableView
+        if (panels.isEmpty() || view == null || !view.isReady) {
+            return null
+        }
+        val stops = panelStops ?: PanelStops.compute(
+            panels = panels,
+            viewWidth = view.width,
+            viewHeight = view.height,
+            pageWidth = view.sWidth,
+            pageHeight = view.sHeight,
+            isRtl = viewer.isRtl,
+            isStepsEnabled = viewer.panels.page.steps,
+        ).also { panelStops = it }
+        return stops.takeUnless { it.isEmpty() }
+    }
+
+    private fun showPanelStop(stops: List<PanelStop>, index: Int, isAnimated: Boolean) {
+        panelIndex = index
+        val stop = stops.getOrNull(index)
+        if (stop == null) {
+            resetZoom()
+        } else {
+            zoomTo(stop.scale, PointF(stop.centerX, stop.centerY), viewer.panels.center, isAnimated)
+        }
+    }
+
+    private fun resetPanels() {
+        panelsJob?.cancel()
+        panelsJob = null
+        panelsData = null
+        panels = emptyList()
+        panelStops = null
+        panelIndex = NO_PANEL
+        isImageShown = false
+        updatePanelsIndicator()
+    }
+
+    private fun loadPanels() {
+        val data = panelsData ?: return
+        panelsJob?.cancel()
+        panelsJob = scope.launch {
+            panels = try {
+                viewer.panelDetector.getPanels(
+                    key = page,
+                    isRtl = viewer.isRtl,
+                    isForeground = viewer.isCurrentPage(page),
+                    isBordersCropped = viewer.paged.page.cropBorders,
+                    openStream = { Buffer().write(data).inputStream() },
+                )
+            } catch (e: CancellationException) {
+                throw e
+            } catch (e: Throwable) {
+                logcat(LogPriority.ERROR, e) { "Panel detection failed" }
+                emptyList()
+            }
+            panelsData = null
+            panelStops = null
+            applyPanelEntry()
+        }.also { job ->
+            job.invokeOnCompletion { updatePanelsIndicator() }
+        }
+        updatePanelsIndicator()
+    }
+
+    private fun updatePanelsIndicator() {
+        val isLoading = isImageShown && panelsJob?.isActive == true
+        if (isLoading && panelsIndicator == null) {
+            panelsIndicator = LinearProgressIndicator(context).apply {
+                isIndeterminate = true
+                trackThickness = (PANELS_INDICATOR_HEIGHT_DP * resources.displayMetrics.density).roundToInt()
+            }
+            addView(
+                panelsIndicator,
+                FrameLayout.LayoutParams(LayoutParams.MATCH_PARENT, LayoutParams.WRAP_CONTENT, Gravity.BOTTOM),
+            )
+        }
+        panelsIndicator?.isVisible = isLoading
     }
 
     /**
@@ -230,5 +396,11 @@ class PagerPageHolder(
     private fun removeErrorLayout() {
         errorLayout?.let(::removeView)
         errorLayout = null
+    }
+
+    private companion object {
+
+        const val NO_PANEL = -1
+        const val PANELS_INDICATOR_HEIGHT_DP = 2
     }
 }

@@ -1,12 +1,23 @@
 package eu.kanade.presentation.more.settings.screen
 
+import android.text.format.Formatter
+import androidx.compose.material3.AlertDialog
+import androidx.compose.material3.Text
+import androidx.compose.material3.TextButton
 import androidx.compose.runtime.Composable
 import androidx.compose.runtime.ReadOnlyComposable
+import androidx.compose.runtime.collectAsState
 import androidx.compose.runtime.getValue
+import androidx.compose.runtime.mutableIntStateOf
+import androidx.compose.runtime.mutableStateOf
 import androidx.compose.runtime.remember
+import androidx.compose.runtime.setValue
 import androidx.compose.ui.platform.LocalContext
 import androidx.compose.ui.platform.LocalView
+import androidx.work.WorkInfo
 import eu.kanade.presentation.more.settings.Preference
+import eu.kanade.tachiyomi.ui.reader.panel.PanelModel
+import eu.kanade.tachiyomi.ui.reader.panel.PanelModelDownloadWorker
 import eu.kanade.tachiyomi.ui.reader.setting.ReaderOrientation
 import eu.kanade.tachiyomi.ui.reader.setting.ReaderPreferences
 import eu.kanade.tachiyomi.ui.reader.setting.ReadingMode
@@ -68,6 +79,7 @@ object SettingsReaderScreen : SearchableSettings {
             getEInkGroup(readerPreferences = readerPref),
             getReadingGroup(readerPreferences = readerPref),
             getPagedGroup(readerPreferences = readerPref),
+            getPanelsGroup(readerPreferences = readerPref),
             getWebtoonGroup(readerPreferences = readerPref),
             getNavigationGroup(readerPreferences = readerPref),
             getActionsGroup(readerPreferences = readerPref),
@@ -279,6 +291,122 @@ object SettingsReaderScreen : SearchableSettings {
     }
 
     @Composable
+    private fun getPanelsGroup(readerPreferences: ReaderPreferences): Preference.PreferenceGroup {
+        val context = LocalContext.current
+        val panelMode by readerPreferences.panelMode.collectAsState()
+        val model by readerPreferences.panelModel.collectAsState()
+        val download by remember(model) { PanelModelDownloadWorker.observe(context, model) }
+            .collectAsState(initial = null)
+        val isDownloading = download?.state == WorkInfo.State.ENQUEUED || download?.state == WorkInfo.State.RUNNING
+        var deletions by remember { mutableIntStateOf(0) }
+        val modelFile = remember(model, download?.state, deletions) {
+            model.getFile(context).takeIf { it.isFile }
+        }
+        val downloadSize = remember(model) { Formatter.formatFileSize(context, model.downloadSize) }
+        var prompt by remember { mutableStateOf<PanelModelPrompt?>(null) }
+
+        prompt?.let { current ->
+            val dismiss = { prompt = null }
+            AlertDialog(
+                onDismissRequest = dismiss,
+                title = { Text(text = model.title) },
+                text = {
+                    Text(
+                        text = when (current) {
+                            PanelModelPrompt.DOWNLOAD ->
+                                stringResource(MR.strings.pref_panel_model_download_prompt, downloadSize) +
+                                    "\n\n" + model.credits
+                            PanelModelPrompt.CANCEL -> stringResource(MR.strings.pref_panel_model_cancel_prompt)
+                            PanelModelPrompt.DELETE -> stringResource(MR.strings.pref_panel_model_delete_prompt)
+                        },
+                    )
+                },
+                dismissButton = {
+                    TextButton(onClick = dismiss) {
+                        Text(text = stringResource(MR.strings.action_cancel))
+                    }
+                },
+                confirmButton = {
+                    TextButton(
+                        onClick = {
+                            dismiss()
+                            when (current) {
+                                PanelModelPrompt.DOWNLOAD -> PanelModelDownloadWorker.start(context, model)
+                                PanelModelPrompt.CANCEL -> PanelModelDownloadWorker.cancel(context, model)
+                                PanelModelPrompt.DELETE -> {
+                                    model.getFile(context).delete()
+                                    deletions++
+                                }
+                            }
+                        },
+                    ) {
+                        Text(text = stringResource(MR.strings.action_ok))
+                    }
+                },
+            )
+        }
+
+        return Preference.PreferenceGroup(
+            title = stringResource(MR.strings.pref_panel_mode),
+            preferenceItems = listOf(
+                Preference.PreferenceItem.SwitchPreference(
+                    preference = readerPreferences.panelMode,
+                    title = stringResource(MR.strings.pref_panel_mode),
+                    subtitle = stringResource(MR.strings.pref_panel_mode_summary),
+                ),
+                Preference.PreferenceItem.SwitchPreference(
+                    preference = readerPreferences.panelSteps,
+                    title = stringResource(MR.strings.pref_panel_steps),
+                    subtitle = stringResource(MR.strings.pref_panel_steps_summary),
+                    visible = panelMode,
+                ),
+                Preference.PreferenceItem.SwitchPreference(
+                    preference = readerPreferences.panelWholePageFirst,
+                    title = stringResource(MR.strings.pref_panel_whole_page),
+                    subtitle = stringResource(MR.strings.pref_panel_whole_page_summary),
+                    visible = panelMode,
+                ),
+                Preference.PreferenceItem.SwitchPreference(
+                    preference = readerPreferences.panelCenter,
+                    title = stringResource(MR.strings.pref_panel_center),
+                    subtitle = stringResource(MR.strings.pref_panel_center_summary),
+                    visible = panelMode,
+                ),
+                Preference.PreferenceItem.ListPreference(
+                    preference = readerPreferences.panelModel,
+                    entries = PanelModel.entries.associateWith { it.title },
+                    title = stringResource(MR.strings.pref_panel_model),
+                ),
+                Preference.PreferenceItem.TextPreference(
+                    title = stringResource(MR.strings.pref_panel_model_download),
+                    subtitle = when {
+                        isDownloading -> stringResource(
+                            MR.strings.pref_panel_model_downloading,
+                            download?.progress?.getInt(PanelModelDownloadWorker.KEY_PROGRESS, 0) ?: 0,
+                        )
+                        modelFile != null -> stringResource(
+                            MR.strings.pref_panel_model_downloaded,
+                            Formatter.formatFileSize(context, modelFile.length()),
+                        )
+                        download?.state == WorkInfo.State.FAILED ->
+                            stringResource(MR.strings.pref_panel_model_failed)
+                        else -> stringResource(MR.strings.pref_panel_model_download_summary, downloadSize)
+                    },
+                    onClick = {
+                        when {
+                            isDownloading -> prompt = PanelModelPrompt.CANCEL
+                            modelFile != null -> prompt = PanelModelPrompt.DELETE
+                            download?.state == WorkInfo.State.FAILED ->
+                                PanelModelDownloadWorker.start(context, model)
+                            else -> prompt = PanelModelPrompt.DOWNLOAD
+                        }
+                    },
+                ),
+            ),
+        )
+    }
+
+    @Composable
     private fun getWebtoonGroup(readerPreferences: ReaderPreferences): Preference.PreferenceGroup {
         val numberFormat = remember { NumberFormat.getPercentInstance() }
 
@@ -431,4 +559,10 @@ object SettingsReaderScreen : SearchableSettings {
             ),
         )
     }
+}
+
+private enum class PanelModelPrompt {
+    DOWNLOAD,
+    CANCEL,
+    DELETE,
 }
