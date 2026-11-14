@@ -91,3 +91,6 @@
     public <init>();
     public void destroy();
 }
+
+# ONNX Runtime is called from the native code
+-keep class ai.onnxruntime.** { *; }
