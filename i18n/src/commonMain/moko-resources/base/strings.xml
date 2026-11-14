@@ -497,6 +497,14 @@
     <string name="pref_panel_center">Center panels on the screen</string>
     <string name="pref_panel_center_summary">Panels at the page edges are centered too, with the background around them</string>
     <string name="pref_panel_model">Panel detection model</string>
+    <string name="pref_panel_model_download">Download the model</string>
+    <string name="pref_panel_model_download_summary">Finds panels on pages without clear gutters, like in modern comics. Download size: %1$s</string>
+    <string name="pref_panel_model_downloading">Downloading: %1$d%%</string>
+    <string name="pref_panel_model_downloaded">Downloaded (%1$s). Tap to delete</string>
+    <string name="pref_panel_model_failed">Download failed. Tap to try again</string>
+    <string name="pref_panel_model_download_prompt">Download this panel detection model (%1$s)? It is used on the pages where panels cannot be found otherwise.</string>
+    <string name="pref_panel_model_cancel_prompt">Cancel downloading this model?</string>
+    <string name="pref_panel_model_delete_prompt">Delete this downloaded model?</string>
     <string name="pref_zoom_start">Zoom start position</string>
     <string name="zoom_start_automatic">Automatic</string>
     <string name="zoom_start_left">Left</string>
