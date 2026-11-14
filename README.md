@@ -4,6 +4,10 @@
     <img src="./.github/assets/logo.png" alt="Mihon logo" title="Mihon logo" width="80"/>
 </a>
 
+## About this Fork
+Mihon fork with: 
+- panel-by-panel browsing (optionally) powered by a local model. 
+
 # Mihon [App](#)
 
 ### Full-featured reader
