@@ -247,7 +247,7 @@ class PagerPageHolder(
     fun switchPanelBy(delta: Int): Boolean {
         val stops = getPanelStops() ?: return false
         val index = panelIndex + delta
-        val minIndex = if (viewer.panels.wholePageFirst) NO_PANEL else 0
+        val minIndex = if (viewer.panels.page.wholePageFirst) NO_PANEL else 0
         if (index < minIndex || index >= stops.size) {
             return false
         }
@@ -273,7 +273,7 @@ class PagerPageHolder(
         val stops = getPanelStops() ?: return
         val index = when {
             isPanelEntryFromEnd -> stops.lastIndex
-            viewer.panels.wholePageFirst -> NO_PANEL
+            viewer.panels.page.wholePageFirst -> NO_PANEL
             else -> 0
         }
         if (index != panelIndex) {
@@ -296,6 +296,7 @@ class PagerPageHolder(
             pageHeight = view.sHeight,
             isRtl = viewer.isRtl,
             isStepsEnabled = viewer.panels.page.steps,
+            isWholePageShown = viewer.panels.page.wholePageFirst,
         ).also { panelStops = it }
         return stops.takeUnless { it.isEmpty() }
     }

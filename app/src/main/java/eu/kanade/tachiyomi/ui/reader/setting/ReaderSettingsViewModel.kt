@@ -154,9 +154,9 @@ class ReaderSettingsViewModel(
             page = PanelSettings.Page(
                 enabled = panelMode.get(),
                 steps = panelSteps.get(),
+                wholePageFirst = panelWholePageFirst.get(),
                 model = panelModel.get(),
             ),
-            wholePageFirst = panelWholePageFirst.get(),
             center = panelCenter.get(),
         )
     }

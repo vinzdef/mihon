@@ -22,6 +22,7 @@ object PanelStops {
     private const val STEP_FACTOR = 0.85f
     private const val MIN_PAN_GAIN = 1.5f
     private const val BALLOON_ZOOM = 1.8f
+    private const val MIN_PAGE_GAIN = 1.1f
 
     // Two steps at most, so a wide panel doesn't turn into a series of taps
     private const val MAX_PAN_ZOOM = 1f + STEP_FACTOR
@@ -35,6 +36,7 @@ object PanelStops {
         pageHeight: Int,
         isRtl: Boolean,
         isStepsEnabled: Boolean,
+        isWholePageShown: Boolean,
     ): List<PanelStop> {
         if (viewWidth <= 0 || viewHeight <= 0 || pageWidth <= 0 || pageHeight <= 0) {
             return emptyList()
@@ -62,15 +64,21 @@ object PanelStops {
                 result.add(fitStop)
                 continue
             }
+            // Not shown again after the whole page, which looks about the same
+            val isFitStopShown = !isWholePageShown || fitScale >= pageScale * MIN_PAGE_GAIN
             val ownBalloons = panelBalloons[panel]
             if (ownBalloons != null) {
-                result.add(fitStop)
+                if (isFitStopShown) {
+                    result.add(fitStop)
+                }
                 addBalloonStops(result, panel, PanelOrder.sort(ownBalloons, isRtl), fitScale, viewWidth, viewHeight)
                 continue
             }
             val panScale = minOf(maxOf(scaleX, scaleY), fitScale * MAX_PAN_ZOOM)
             if (panScale < fitScale * MIN_PAN_GAIN) {
-                result.add(fitStop)
+                if (isFitStopShown) {
+                    result.add(fitStop)
+                }
                 continue
             }
             if (scaleX < scaleY) {

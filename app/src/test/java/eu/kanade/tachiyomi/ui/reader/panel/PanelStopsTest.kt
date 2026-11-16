@@ -88,6 +88,16 @@ class PanelStopsTest {
         assertTrue(compute(emptyList(), balloons = emptyList()).isEmpty())
     }
 
+    @Test
+    fun pagePanelIsNotShownAgainAfterWholePage() {
+        val page = listOf(Panel(0, 0, PAGE_WIDTH, PAGE_HEIGHT))
+        val balloons = listOf(Panel(100, 100, 300, 300))
+
+        assertTrue(compute(page, emptyList(), isWholePageShown = true).isEmpty())
+        assertEquals(compute(page, balloons).drop(1), compute(page, balloons, isWholePageShown = true))
+        assertEquals(1, compute(listOf(Panel(0, 0, 500, 700)), emptyList(), isWholePageShown = true).size)
+    }
+
     private fun compute(panel: Panel, isRtl: Boolean, isStepsEnabled: Boolean = true) =
         compute(listOf(panel), emptyList(), isRtl, isStepsEnabled)
 
@@ -96,6 +106,7 @@ class PanelStopsTest {
         balloons: List<Panel>,
         isRtl: Boolean = false,
         isStepsEnabled: Boolean = true,
+        isWholePageShown: Boolean = false,
     ) = PanelStops.compute(
         panels = panels,
         balloons = balloons,
@@ -105,6 +116,7 @@ class PanelStopsTest {
         pageHeight = PAGE_HEIGHT,
         isRtl = isRtl,
         isStepsEnabled = isStepsEnabled,
+        isWholePageShown = isWholePageShown,
     )
 
     private companion object {
