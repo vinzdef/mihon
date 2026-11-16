@@ -19,12 +19,12 @@ import java.io.InputStream
 
 class PanelDetector(
     private val context: Context,
-    preferences: ReaderPreferences,
+    private val preferences: ReaderPreferences,
 ) {
 
     private val mutex = Mutex()
     private val foregroundRequests = MutableStateFlow(0)
-    private val cache = LruCache<Any, List<Panel>>(CACHE_SIZE)
+    private val cache = LruCache<Any, PagePanels>(CACHE_SIZE)
     private val mlDetector = MlPanelDetector(context, preferences)
 
     @Volatile
@@ -32,7 +32,7 @@ class PanelDetector(
 
     /**
      * @param isForeground whether the page is on screen, which goes before the other requests
-     * @return panels in the coordinates of the cropped image, empty if none were found
+     * @return panels and balloons in the coordinates of the cropped image, empty if none were found
      */
     suspend fun getPanels(
         key: Any,
@@ -40,7 +40,7 @@ class PanelDetector(
         isForeground: Boolean,
         isBordersCropped: Boolean,
         openStream: () -> InputStream,
-    ): List<Panel> {
+    ): PagePanels {
         val cacheKey = Triple(key, isRtl, isBordersCropped)
         cache[cacheKey]?.let { return it }
         if (isForeground) {
@@ -82,7 +82,7 @@ class PanelDetector(
         openStream: () -> InputStream,
         isBordersCropped: Boolean,
         isRtl: Boolean,
-    ): List<Panel> {
+    ): PagePanels {
         var fullWidth = 0
         var fullHeight = 0
         val page = withContext(Dispatchers.IO) {
@@ -110,17 +110,25 @@ class PanelDetector(
                 val scaleX = fullWidth / width.toFloat()
                 val scaleY = fullHeight / height.toFloat()
                 var panels = PanelSplitter.split(pixels, width, height, isRtl)
+                var balloons = emptyList<Panel>()
                 var isFromModel = false
                 val startTime = System.currentTimeMillis()
-                if (panels.isEmpty() && mlDetector.isAvailable) {
-                    panels = mlDetector.detect(page, isRtl)
+                val isBalloonsNeeded = preferences.panelSteps.get() && mlDetector.isBalloonsAvailable &&
+                    panels.any { PanelStops.isLarge(it, width, height) }
+                if ((panels.isEmpty() && mlDetector.isAvailable) || isBalloonsNeeded) {
+                    val detected = mlDetector.detect(page, isRtl)
+                    if (panels.isEmpty()) {
+                        panels = detected.panels
+                    }
+                    balloons = detected.balloons
                     isFromModel = true
                 }
                 logcat {
-                    "page ${fullWidth}x$fullHeight sampled to ${width}x$height: ${panels.size} panels $panels" +
+                    "page ${fullWidth}x$fullHeight sampled to ${width}x$height: ${panels.size} panels $panels, " +
+                        "${balloons.size} balloons" +
                         if (isFromModel) " by model in ${System.currentTimeMillis() - startTime}ms" else ""
                 }
-                panels.map {
+                val toFullSize = { it: Panel ->
                     Panel(
                         left = (it.left * scaleX).toInt(),
                         top = (it.top * scaleY).toInt(),
@@ -128,6 +136,7 @@ class PanelDetector(
                         bottom = (it.bottom * scaleY).toInt().coerceAtMost(fullHeight),
                     )
                 }
+                PagePanels(panels.map(toFullSize), balloons.map(toFullSize))
             }
         } finally {
             page.recycle()

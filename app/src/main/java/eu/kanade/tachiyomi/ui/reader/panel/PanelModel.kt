@@ -14,6 +14,10 @@ enum class PanelModel(
     val sha256: String,
     val isArchive: Boolean,
     val minScore: Float,
+    /**
+     * Null if the model isn't known to detect text.
+     */
+    val minBalloonScore: Float?,
 ) {
 
     MANGA109(
@@ -24,6 +28,7 @@ enum class PanelModel(
         sha256 = "38d42cd9717359914aa40376ec554c7741e4abf37c989ce8a16e6c7c9bc37a29",
         isArchive = false,
         minScore = 0.4f,
+        minBalloonScore = 0.5f,
     ),
     KOMELIA_MEDIUM(
         title = "Komelia Medium",
@@ -33,6 +38,7 @@ enum class PanelModel(
         sha256 = "e959252609ac05ef58de685df8eee639eda6ef65131559e8bb27c981d2463f52",
         isArchive = true,
         minScore = 0.5f,
+        minBalloonScore = null,
     ),
     KOMELIA_NANO(
         title = "Komelia Nano",
@@ -42,6 +48,7 @@ enum class PanelModel(
         sha256 = "232551517f1ee9f06da018edcab986686a4756c3a23f2aa9d25fc7feb8637e74",
         isArchive = true,
         minScore = 0.5f,
+        minBalloonScore = null,
     ),
     ;
 

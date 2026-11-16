@@ -7,7 +7,6 @@ import eu.kanade.tachiyomi.ui.reader.panel.PanelModel
  */
 data class PanelSettings(
     val page: Page,
-    val wholePageFirst: Boolean,
     val center: Boolean,
 ) {
 
@@ -17,6 +16,7 @@ data class PanelSettings(
     data class Page(
         val enabled: Boolean,
         val steps: Boolean,
+        val wholePageFirst: Boolean,
         val model: PanelModel,
     )
 }

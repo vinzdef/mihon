@@ -16,3 +16,12 @@ data class Panel(
     val height: Int
         get() = bottom - top
 }
+
+/**
+ * @param panels in reading order
+ * @param balloons bounds of the text regions, unordered
+ */
+data class PagePanels(
+    val panels: List<Panel>,
+    val balloons: List<Panel>,
+)
