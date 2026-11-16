@@ -50,8 +50,55 @@ class PanelStopsTest {
         assertEquals(500f, stops[0].centerX, 0.01f)
     }
 
-    private fun compute(panel: Panel, isRtl: Boolean, isStepsEnabled: Boolean = true) = PanelStops.compute(
-        panels = listOf(panel),
+    @Test
+    fun largePanelIsReadAlongBalloonsAfterShownWhole() {
+        val panel = Panel(0, 0, PAGE_WIDTH, PAGE_HEIGHT)
+        val first = Panel(700, 100, 900, 300)
+        val second = Panel(100, 1100, 300, 1300)
+        val stops = compute(listOf(panel), balloons = listOf(second, first))
+
+        assertEquals(3, stops.size)
+        assertEquals(compute(panel, isRtl = false), stops.take(1))
+        for ((stop, balloon) in stops.drop(1).zip(listOf(first, second))) {
+            assertTrue(stop.scale > stops[0].scale * 1.5f)
+            val halfWidth = VIEW_WIDTH / stop.scale / 2f
+            val halfHeight = VIEW_HEIGHT / stop.scale / 2f
+            assertTrue(stop.centerX - halfWidth <= balloon.left && stop.centerX + halfWidth >= balloon.right)
+            assertTrue(stop.centerY - halfHeight <= balloon.top && stop.centerY + halfHeight >= balloon.bottom)
+            // the viewport stays in the panel
+            assertTrue(stop.centerX - halfWidth >= -0.01f && stop.centerX + halfWidth <= PAGE_WIDTH + 0.01f)
+            assertTrue(stop.centerY - halfHeight >= -0.01f && stop.centerY + halfHeight <= PAGE_HEIGHT + 0.01f)
+        }
+    }
+
+    @Test
+    fun nearbyBalloonsShareStop() {
+        val balloons = listOf(Panel(100, 100, 300, 300), Panel(350, 150, 500, 400))
+        assertEquals(2, compute(listOf(Panel(0, 0, PAGE_WIDTH, PAGE_HEIGHT)), balloons).size)
+    }
+
+    @Test
+    fun smallPanelIgnoresBalloons() {
+        assertEquals(1, compute(listOf(Panel(0, 0, 500, 700)), balloons = listOf(Panel(100, 100, 200, 200))).size)
+    }
+
+    @Test
+    fun pageWithoutPanelsIsReadAlongBalloons() {
+        assertEquals(2, compute(emptyList(), balloons = listOf(Panel(100, 100, 300, 300))).size)
+        assertTrue(compute(emptyList(), balloons = emptyList()).isEmpty())
+    }
+
+    private fun compute(panel: Panel, isRtl: Boolean, isStepsEnabled: Boolean = true) =
+        compute(listOf(panel), emptyList(), isRtl, isStepsEnabled)
+
+    private fun compute(
+        panels: List<Panel>,
+        balloons: List<Panel>,
+        isRtl: Boolean = false,
+        isStepsEnabled: Boolean = true,
+    ) = PanelStops.compute(
+        panels = panels,
+        balloons = balloons,
         viewWidth = VIEW_WIDTH,
         viewHeight = VIEW_HEIGHT,
         pageWidth = PAGE_WIDTH,

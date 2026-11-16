@@ -490,8 +490,8 @@
     <string name="pref_landscape_zoom">Automatically zoom into wide images</string>
     <string name="pref_panel_mode">Panel-by-panel reading</string>
     <string name="pref_panel_mode_summary">Zoom to each panel in turn when moving through a page</string>
-    <string name="pref_panel_steps">Read wide panels in steps</string>
-    <string name="pref_panel_steps_summary">Zoom further into panels which are too wide or too tall for the screen and move along them</string>
+    <string name="pref_panel_steps">Read large panels in steps</string>
+    <string name="pref_panel_steps_summary">Zoom further into panels which are too large for the screen and move along them, following the speech balloons if the model can detect them</string>
     <string name="pref_panel_whole_page">Show the whole page first</string>
     <string name="pref_panel_whole_page_summary">Open each page zoomed out before moving to its first panel</string>
     <string name="pref_panel_center">Center panels on the screen</string>

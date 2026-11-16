@@ -28,11 +28,14 @@ class MlPanelDetector(
     val isAvailable: Boolean
         get() = preferences.panelModel.get().isDownloaded(context)
 
+    val isBalloonsAvailable: Boolean
+        get() = isAvailable && preferences.panelModel.get().minBalloonScore != null
+
     @WorkerThread
     @Synchronized
-    fun detect(page: Bitmap, isRtl: Boolean): List<Panel> {
+    fun detect(page: Bitmap, isRtl: Boolean): PagePanels {
         if (isClosed) {
-            return emptyList()
+            return PagePanels(emptyList(), emptyList())
         }
         val environment = OrtEnvironment.getEnvironment()
         val model = preferences.panelModel.get()
@@ -48,7 +51,7 @@ class MlPanelDetector(
         val shape = (session.inputInfo.getValue(inputName).info as TensorInfo).shape
         val height = shape[2].toInt()
         val width = shape[3].toInt()
-        val candidates = OnnxTensor.createTensor(environment, page.toTensor(width, height), shape).use { input ->
+        return OnnxTensor.createTensor(environment, page.toTensor(width, height), shape).use { input ->
             session.run(mapOf(inputName to input)).use { output ->
                 var boxes: FloatBuffer? = null
                 var logits: FloatBuffer? = null
@@ -63,10 +66,15 @@ class MlPanelDetector(
                         classes = lastDimension
                     }
                 }
-                parse(checkNotNull(boxes), checkNotNull(logits), classes, model.minScore, page.width, page.height)
+                val candidates = Candidates(checkNotNull(boxes), checkNotNull(logits), classes, page.width, page.height)
+                PagePanels(
+                    panels = PanelOrder.sort(suppressOverlaps(candidates.parse(PANEL_CLASS, model.minScore)), isRtl),
+                    balloons = model.minBalloonScore
+                        ?.let { suppressOverlaps(candidates.parse(BALLOON_CLASS, it)) }
+                        .orEmpty(),
+                )
             }
         }
-        return PanelOrder.sort(suppressOverlaps(candidates), isRtl)
     }
 
     @Synchronized
@@ -104,38 +112,42 @@ class MlPanelDetector(
     /**
      * Boxes are relative (cx, cy, w, h) with a logit per class.
      */
-    private fun parse(
-        boxes: FloatBuffer,
-        logits: FloatBuffer,
-        classes: Int,
-        minScore: Float,
-        width: Int,
-        height: Int,
-    ): List<Candidate> {
-        val result = ArrayList<Candidate>()
-        for (i in 0 until boxes.remaining() / BOX_SIZE) {
-            val score = sigmoid(logits.get(i * classes + PANEL_CLASS))
-            if (score < minScore) {
-                continue
+    private class Candidates(
+        private val boxes: FloatBuffer,
+        private val logits: FloatBuffer,
+        private val classes: Int,
+        private val width: Int,
+        private val height: Int,
+    ) {
+
+        fun parse(type: Int, minScore: Float): List<Candidate> {
+            val result = ArrayList<Candidate>()
+            for (i in 0 until boxes.remaining() / BOX_SIZE) {
+                val score = sigmoid(logits.get(i * classes + type))
+                if (score < minScore) {
+                    continue
+                }
+                val centerX = boxes.get(i * BOX_SIZE) * width
+                val centerY = boxes.get(i * BOX_SIZE + 1) * height
+                val halfWidth = boxes.get(i * BOX_SIZE + 2) * width / 2f
+                val halfHeight = boxes.get(i * BOX_SIZE + 3) * height / 2f
+                val panel = Panel(
+                    left = (centerX - halfWidth).toInt().coerceIn(0, width),
+                    top = (centerY - halfHeight).toInt().coerceIn(0, height),
+                    right = (centerX + halfWidth).toInt().coerceIn(0, width),
+                    bottom = (centerY + halfHeight).toInt().coerceIn(0, height),
+                )
+                if (panel.width > 0 && panel.height > 0) {
+                    result.add(Candidate(panel, score))
+                }
             }
-            val centerX = boxes.get(i * BOX_SIZE) * width
-            val centerY = boxes.get(i * BOX_SIZE + 1) * height
-            val halfWidth = boxes.get(i * BOX_SIZE + 2) * width / 2f
-            val halfHeight = boxes.get(i * BOX_SIZE + 3) * height / 2f
-            val panel = Panel(
-                left = (centerX - halfWidth).toInt().coerceIn(0, width),
-                top = (centerY - halfHeight).toInt().coerceIn(0, height),
-                right = (centerX + halfWidth).toInt().coerceIn(0, width),
-                bottom = (centerY + halfHeight).toInt().coerceIn(0, height),
-            )
-            if (panel.width > 0 && panel.height > 0) {
-                result.add(Candidate(panel, score))
-            }
+            return result
         }
-        return result
+
+        private fun sigmoid(x: Float) = 1f / (1f + exp(-x))
     }
 
-    // The model may find the same panel several times
+    // The model may find the same region several times
     private fun suppressOverlaps(candidates: List<Candidate>): List<Panel> {
         val result = ArrayList<Panel>()
         for (candidate in candidates.sortedByDescending { it.score }) {
@@ -156,8 +168,6 @@ class MlPanelDetector(
         return intersection / (this.width.toFloat() * this.height + other.width.toFloat() * other.height - intersection)
     }
 
-    private fun sigmoid(x: Float) = 1f / (1f + exp(-x))
-
     private class Candidate(
         val panel: Panel,
         val score: Float,
@@ -169,6 +179,7 @@ class MlPanelDetector(
         const val CHANNELS = 3
         const val BOX_SIZE = 4
         const val PANEL_CLASS = 1
+        const val BALLOON_CLASS = 2
         const val MAX_OVERLAP = 0.5f
 
         // ImageNet normalization the models were trained with

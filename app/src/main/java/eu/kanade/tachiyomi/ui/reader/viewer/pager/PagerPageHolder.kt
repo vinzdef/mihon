@@ -9,7 +9,7 @@ import androidx.core.view.isVisible
 import com.google.android.material.progressindicator.LinearProgressIndicator
 import eu.kanade.tachiyomi.source.model.Page
 import eu.kanade.tachiyomi.ui.reader.model.ReaderPage
-import eu.kanade.tachiyomi.ui.reader.panel.Panel
+import eu.kanade.tachiyomi.ui.reader.panel.PagePanels
 import eu.kanade.tachiyomi.ui.reader.panel.PanelStop
 import eu.kanade.tachiyomi.ui.reader.panel.PanelStops
 import eu.kanade.tachiyomi.ui.reader.viewer.ReaderPageErrorView
@@ -65,7 +65,7 @@ class PagerPageHolder(
      */
     private var loadJob: Job? = null
 
-    private var panels: List<Panel> = emptyList()
+    private var panels: PagePanels? = null
     private var panelStops: List<PanelStop>? = null
     private var panelIndex = NO_PANEL
     private var isPanelEntryFromEnd = viewer.isBeforeCurrentPage(page)
@@ -283,11 +283,13 @@ class PagerPageHolder(
 
     private fun getPanelStops(): List<PanelStop>? {
         val view = zoomableView
-        if (panels.isEmpty() || view == null || !view.isReady) {
+        val panels = panels
+        if (panels == null || view == null || !view.isReady) {
             return null
         }
         val stops = panelStops ?: PanelStops.compute(
-            panels = panels,
+            panels = panels.panels,
+            balloons = panels.balloons,
             viewWidth = view.width,
             viewHeight = view.height,
             pageWidth = view.sWidth,
@@ -312,7 +314,7 @@ class PagerPageHolder(
         panelsJob?.cancel()
         panelsJob = null
         panelsData = null
-        panels = emptyList()
+        panels = null
         panelStops = null
         panelIndex = NO_PANEL
         isImageShown = false
@@ -335,7 +337,7 @@ class PagerPageHolder(
                 throw e
             } catch (e: Throwable) {
                 logcat(LogPriority.ERROR, e) { "Panel detection failed" }
-                emptyList()
+                null
             }
             panelsData = null
             panelStops = null
